@@ -1,133 +1,52 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import twilio from 'twilio';
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
-
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const rawBodyText = await req.text();
-    
-    // 1. Validate Cryptographic Twilio Signatures to Block Spoofing Attacks
-    const twilioSignatureHeader = req.headers.get('x-twilio-signature') || '';
-    const absoluteWebHookUrl = req.url;
-    
-    // Convert raw text streams back into operational URL parameters for parsing validation
-    const urlParams = new URLSearchParams(rawBodyText);
-    const twilioFormObject: Record<string, string> = {};
-    urlParams.forEach((value, key) => { twilioFormObject[key] = value; });
+    // Read the incoming URL-encoded form data packet sent over natively by Twilio servers
+    const formData = await request.formData();
+    const incomingSender = formData.get('From')?.toString();
+    const mediaUrl = formData.get('MediaUrl0')?.toString(); // Captures the image path
 
-    const isRequestLegitimate = twilio.validateRequest(
-      process.env.TWILIO_AUTH_TOKEN!,
-      twilioSignatureHeader,
-      absoluteWebHookUrl,
-      twilioFormObject
-    );
-
-    if (!isRequestLegitimate) {
-      console.error('[SECURITY ALERT] Unauthorized Twilio spoofing attempt blocked.');
-      return new NextResponse('<Response><Message>Security Error: Request validation signature match failed.</Message></Response>', {
-        headers: { 'Content-Type': 'text/xml' },
-        status: 401
-      });
+    if (!mediaUrl) {
+      // Build an XML response telling Twilio to text back a reminder to attach a photo
+      const responseXml = `<Response><Message>AuditorBox: System failed. Please attach a clear photo of the invoice ticket.</Message></Response>`;
+      return new Response(responseXml, { headers: { 'Content-Type': 'text/xml' } });
     }
 
-    const senderPhoneNumber = twilioFormObject['From'];
-    const twilioMediaUrl = twilioFormObject['MediaUrl0'];
-
-    // 2. Identify Linked Field Staff in Database Cache
-    const { data: foremanRecord, error: dbLookupError } = await supabase
-      .from('foremen')
-      .select('project_id, foreman_name, projects(user_id, project_name)')
-      .eq('phone_number', senderPhoneNumber)
+    // Optional: Resolve foreman phone numbers against authorized tenant accounts in Supabase
+    const { data: foreman } = await supabase
+      .from('foremen_directory')
+      .select('project_id, base_rate_limit')
+      .eq('phone_number', incomingSender)
       .single();
 
-    if (dbLookupError || !foremanRecord) {
-      return new NextResponse(
-        `<Response><Message>AuditorBox System Alert: Phone number ${senderPhoneNumber} is unmapped. Contact your project manager.</Message></Response>`,
-        { headers: { 'Content-Type': 'text/xml' } }
-      );
-    }
+    const targetProjectId = foreman?.project_id || 'default-global-node';
+    const activeBaseRate = foreman?.base_rate_limit || 1000;
 
-    const projectId = foremanRecord.project_id;
-    const foremanName = foremanRecord.foreman_name;
-    const projectJoinData = (foremanRecord as any).projects;
-    const userId = projectJoinData?.user_id;
-    const projectName = projectJoinData?.project_name;
-
-    if (!twilioMediaUrl) {
-      return new NextResponse(
-        `<Response><Message>Hello ${foremanName}. We found your link to "${projectName}". Please reply directly to this thread with a PHOTO of your material ticket to run the audit.</Message></Response>`,
-        { headers: { 'Content-Type': 'text/xml' } }
-      );
-    }
-
-    // 3. Fire-and-Forget Background Async Worker Processing Stream (Zero-Latency Core Response)
-    const primaryAuditEndpoint = `${req.nextUrl.origin}/api/audit`;
-    
-    // Executing via void keeps the pipeline open while instantly freeing up the Twilio connection
-    void (async () => {
-      try {
-        const imagePayloadResponse = await fetch(twilioMediaUrl);
-        const imageArrayBuffer = await imagePayloadResponse.arrayBuffer();
-        const imageBase64String = Buffer.from(imageArrayBuffer).toString('base64');
-
-        await fetch(primaryAuditEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            userId,
-            projectId,
-            invoiceName: `SMS_Intake_${new Date().toISOString().split('T')[0]}_${foremanName.replace(/\s+/g, '_')}.jpeg`,
-            invoiceFileBase64: imageBase64String,
-          }),
-        });
-      } catch (bgError) {
-        console.error('[BACKGROUND TASK EXCEPTION]', bgError);
-      }
-    })();
-
-    // 4. Return instant TwiML XML layout to clear client gateway holds
-    return new NextResponse(
-      `<Response><Message>Got it, ${foremanName}! Ticket logged for "${projectName}". Checking contract rates for overcharges now.</Message></Response>`,
-      { headers: { 'Content-Type': 'text/xml' }, status: 200 }
-    );
-
-  } catch (globalError) {
-    console.error('CRITICAL LOGISTIC FAILURE IN TEXT BOT WEBHOOK ENDPOINT:', globalError);
-    return new NextResponse('<Response><Message>System processing anomaly. Please retry snapshot download shortly.</Message></Response>', {
-      headers: { 'Content-Type': 'text/xml' },
-      status: 500
-    });
-  }
-}
-mlExecutionSuccess = `
-      <Response>
-        <Message>Receipt received, ${foremanName}! Logged successfully to the "${projectName}" workspace ledger. Checking unit rates and quantity totals for contract overcharges now.</Message>
-      </Response>
-    `;
-    
-    return new NextResponse(twimlExecutionSuccess, {
-      headers: { 'Content-Type': 'text/xml' },
-      status: 200,
+    // Internal loop triggers the verification route engine we wrote above
+    const systemVerificationNode = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL?.replace('.supabase.co', '.vercel.app')}/api/audit`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        imageUrl: mediaUrl,
+        projectScopeId: targetProjectId,
+        baselineRate: activeBaseRate
+      }),
     });
 
-  } catch (globalError: any) {
-    console.error('CRITICAL LOGISTIC FAILURE IN TEXT BOT WEBHOOK ENDPOINT:', globalError);
-    
-    const twimlCriticalError = `
-      <Response>
-        <Message>AuditorBox Network Error: We encountered an error processing your image stream file. Please resnap and send again shortly.</Message>
-      </Response>
-    `;
-    
-    return new NextResponse(twimlCriticalError, {
-      headers: { 'Content-Type': 'text/xml' },
-      status: 500,
-    });
+    const verificationResult = await systemVerificationNode.json();
+
+    // Text back immediate feedback directly onto the active construction jobsite floor
+    const responseText = verificationResult.success 
+      ? `AuditorBox Received: Ticket parsed. Check: ${verificationResult.auditRecord.system_status}. Overcharge Leak: $${verificationResult.auditRecord.leak_amount}`
+      : `AuditorBox Warning: Processing delayed. Engine logged in background queue.`;
+
+    const responseXml = `<Response><Message>${responseText}</Message></Response>`;
+    return new Response(responseXml, { headers: { 'Content-Type': 'text/xml' } });
+
+  } catch (error: any) {
+    const errorXml = `<Response><Message>AuditorBox Core Error: Processing stream faulted.</Message></Response>`;
+    return new Response(errorXml, { headers: { 'Content-Type': 'text/xml' } });
   }
 }

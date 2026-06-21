@@ -1,0 +1,12 @@
+# Local Environment Secrets
+.env
+.env.local
+.env.production.local
+.env.development.local
+
+# Dependencies
+node_modules/
+
+# Next.js Build Output
+.next/
+out/

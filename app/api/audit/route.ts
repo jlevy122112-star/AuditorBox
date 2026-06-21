@@ -1,39 +1,64 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import { supabase } from '@/lib/supabase';
+import OpenAI from 'openai';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY || '',
+});
 
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    const { userId, projectId, invoiceName, invoiceFileBase64, vendorEmail } = await req.json();
+    const { imageUrl, projectScopeId, baselineRate } = await request.json();
 
-    if (!userId || !projectId || !invoiceFileBase64) {
-      return NextResponse.json({ error: 'Bad Request: Missing parameters.' }, { status: 400 });
+    if (!imageUrl || !projectScopeId) {
+      return NextResponse.json({ error: 'Missing Required Payload parameters.' }, { status: 400 });
     }
 
-    // 1. Verify Project Ownership (Cross-Tenant Security Validation Check)
-    const { data: verifiedProject, error: projectVerifyErr } = await supabase
-      .from('projects')
-      .select('id')
-      .eq('id', projectId)
-      .eq('user_id', userId)
+    // 1. Fire up OpenAI Vision analytical node to parse line items out of the photo
+    const visionResponse = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Extract the total invoice dollar amount and individual material quantities from this bill of lading. Return ONLY a clean JSON block containing keys: totalAmount (number) and materialType (string)." },
+            { type: "image_url", image_url: { url: imageUrl } },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
+
+    const parsedData = JSON.parse(visionResponse.choices[0].message.content || '{}');
+    const extractedTotal = parsedData.totalAmount || 0;
+
+    // 2. Compute financial variance against your contractual ceiling rates
+    const varianceAmount = extractedTotal > baselineRate ? extractedTotal - baselineRate : 0;
+    const evaluationStatus = varianceAmount > 0 ? 'Variance Found' : 'Verified Compliant';
+
+    // 3. Log data to your ready Supabase relational table grid
+    const { data: loggedRecord, error: dbError } = await supabase
+      .from('audit_logs')
+      .insert([
+        {
+          project_id: projectScopeId,
+          file_node_url: imageUrl,
+          extracted_amount: extractedTotal,
+          leak_amount: varianceAmount,
+          system_status: evaluationStatus,
+        }
+      ])
+      .select()
       .single();
 
-    if (projectVerifyErr || !verifiedProject) {
-      console.error(`[SECURITY TAMPER ALERT] User ${userId} attempted to log data to unauthorized project workspace: ${projectId}`);
-      return NextResponse.json({ error: 'Forbidden: Project validation matching failure.' }, { status: 403 });
-    }
+    if (dbError) throw dbError;
 
-    // 2. Production Core LLM System Hook Point
-    // This is where your base64 string flows directly into your OpenAI vision payload model.
-    const mockSavedVarianceAmount = 1450.00; 
-    const mockGeneratedDisputeText = `Attention Accounts Payable,\n\nOur contract specifies flat-rate pricing for bulk materials on this jobsite. Your delivery ticket matches invoice line charges that reflect a unit rate inflation. Please adjust by issuing a credit memo for $1,450.00.`;
+    return NextResponse.json({ success: true, auditRecord: loggedRecord });
 
-    const reportId = `rep_${Date.now()}`;
+  } catch (error: any) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+}
 
     // 3. Track calculations securely inside the database ledger tracking lines
     const { error: insertErr } = await supabase

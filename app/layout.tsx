@@ -1,15 +1,35 @@
-import React from 'react';
-import './globals.css'; // Make sure your Tailwind config imports standard @tailwind directives here
+import type { Metadata, Viewport } from "next";
+import { Geist } from "next/font/google";
+import "./globals.css";
 
-export const metadata = {
-  title: 'AuditorBox - Construction Billing Forensic AI',
-  description: 'Automated semantic invoice reconciliation and progress billing audit engine for contractors.',
+// Optimizing the core font cluster for high-density tabular data layouts
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+export const metadata: Metadata = {
+  title: "AuditorBox | Automated Vision Forensic Ledger",
+  description: "Stop capital leaks on material overcharges and delivery variances in real time.",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+// Guaranteeing that mobile viewports lock scaling to prevent layout breaking on phones
+export const viewport: Viewport = {
+  themeColor: "#0f172a", // Slate 900
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en" className="h-full bg-slate-50">
-      <body className="h-full text-slate-900 font-sans antialiased selection:bg-emerald-100">
+    <html lang="en" className={`${geistSans.variable} scroll-smooth`}>
+      <body className="bg-slate-950 text-slate-50 antialiased font-sans">
         {children}
       </body>
     </html>

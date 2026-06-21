@@ -72,6 +72,44 @@ export default function DashboardPage() {
     </div>
   );
 }
+        </section>
+
+        <section className="bg-slate-900/40 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="p-6 border-b border-slate-800 bg-slate-900/20">
+            <h2 className="text-lg font-bold text-slate-100">Forensic Audit Log Trail</h2>
+            <p className="text-slate-400 text-xs mt-0.5">Live invoice processing streams received via mobile text hooks.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="border-b border-slate-800 text-slate-400 font-medium bg-slate-900/10">
+                  <th className="p-4">Project Scope</th>
+                  <th className="p-4">Asset File Node</th>
+                  <th className="p-4">Leaked Amount</th>
+                  <th className="p-4 text-right">System Evaluation Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+                {sampleAuditLogs.map((log) => (
+                  <tr key={log.id} className="hover:bg-slate-900/20 transition-all">
+                    <td className="p-4 font-sans font-semibold text-slate-200">{log.project}</td>
+                    <td className="p-4 text-slate-400">{log.ticket}</td>
+                    <td className="p-4 font-bold text-slate-100">{log.leak}</td>
+                    <td className="p-4 text-right">
+                      <span className={`inline-block px-2.5 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider ${log.color}`}>
+                        {log.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+  );
+}
     </tbody>
             </table>
           )}

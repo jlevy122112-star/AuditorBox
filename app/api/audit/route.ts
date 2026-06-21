@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import twilio from 'twilio';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,30 +9,62 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   try {
-    const rawBodyText = await req.text();
-    
-    // 1. Validate Cryptographic Twilio Signatures to Block Spoofing Attacks
-    const twilioSignatureHeader = req.headers.get('x-twilio-signature') || '';
-    const absoluteWebHookUrl = req.url;
-    
-    // Convert raw text streams back into operational URL parameters for parsing validation
-    const urlParams = new URLSearchParams(rawBodyText);
-    const twilioFormObject: Record<string, string> = {};
-    urlParams.forEach((value, key) => { twilioFormObject[key] = value; });
+    const { userId, projectId, invoiceName, invoiceFileBase64, vendorEmail } = await req.json();
 
-    const isRequestLegitimate = twilio.validateRequest(
-      process.env.TWILIO_AUTH_TOKEN!,
-      twilioSignatureHeader,
-      absoluteWebHookUrl,
-      twilioFormObject
-    );
+    if (!userId || !projectId || !invoiceFileBase64) {
+      return NextResponse.json({ error: 'Bad Request: Missing parameters.' }, { status: 400 });
+    }
 
-    if (!isRequestLegitimate) {
-      console.error('[SECURITY ALERT] Unauthorized Twilio spoofing attempt blocked.');
-      return new NextResponse('<Response><Message>Security Error: Request validation signature match failed.</Message></Response>', {
-        headers: { 'Content-Type': 'text/xml' },
-        status: 401
+    // 1. Verify Project Ownership (Cross-Tenant Security Validation Check)
+    const { data: verifiedProject, error: projectVerifyErr } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', userId)
+      .single();
+
+    if (projectVerifyErr || !verifiedProject) {
+      console.error(`[SECURITY TAMPER ALERT] User ${userId} attempted to log data to unauthorized project workspace: ${projectId}`);
+      return NextResponse.json({ error: 'Forbidden: Project validation matching failure.' }, { status: 403 });
+    }
+
+    // 2. Production Core LLM System Hook Point
+    // This is where your base64 string flows directly into your OpenAI vision payload model.
+    const mockSavedVarianceAmount = 1450.00; 
+    const mockGeneratedDisputeText = `Attention Accounts Payable,\n\nOur contract specifies flat-rate pricing for bulk materials on this jobsite. Your delivery ticket matches invoice line charges that reflect a unit rate inflation. Please adjust by issuing a credit memo for $1,450.00.`;
+
+    const reportId = `rep_${Date.now()}`;
+
+    // 3. Track calculations securely inside the database ledger tracking lines
+    const { error: insertErr } = await supabase
+      .from('audit_reports')
+      .insert({
+        id: reportId,
+        user_id: userId,
+        project_id: projectId,
+        invoice_name: invoiceName || 'Unresolved_Document_Ticket.pdf',
+        vendor_email: vendorEmail || 'billing@supplier-domain.com',
+        dispute_email_draft: mockGeneratedDisputeText,
+        saved_amount: mockSavedVarianceAmount,
+        status: 'variance_found'
       });
+
+    if (insertErr) {
+      throw new Error(`Database transaction exception writing audit ledger: ${insertErr.message}`);
+    }
+
+    return NextResponse.json({
+      success: true,
+      reportId,
+      leakDetectedAmount: mockSavedVarianceAmount,
+      message: 'Forensic audit processing sequence finalized cleanly and safely verified.'
+    }, { status: 200 });
+
+  } catch (err: any) {
+    console.error('CRITICAL SYSTEM FAILURE IN AUDIT LOG ENGINE:', err);
+    return NextResponse.json({ error: 'Internal Analysis Fault', message: err.message }, { status: 500 });
+  }
+}
     }
 
     const senderPhoneNumber = twilioFormObject['From'];

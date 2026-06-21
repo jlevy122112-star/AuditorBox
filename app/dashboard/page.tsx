@@ -1,39 +1,179 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import DisputeModal from '@/components/DisputeModal';
 
-// Strict TypeScript interfaces matching our database and API layer objects
-interface DiscrepancyItem {
-  item_description: string;
-  expected_price: number;
-  charged_price: number;
-  variance_loss: number;
-  reason: string;
-}
-
-interface AuditReport {
-  id: string;
-  created_at: string;
-  invoice_name: string;
-  vendor_email: string;
-  amount_saved: number;
-  status: 'Processing' | 'Flagged' | 'Clean';
-  discrepancy_json: DiscrepancyItem[];
-  dispute_email_draft: string;
-}
-
-interface Project {
-  id: string;
-  project_name: string;
-}
+// Mocked structural matrix reflecting production database lines
+const initialReportData = [
+  { id: 'rep_01', invoice_name: 'INV-2026-9901_StructuralSteel.pdf', vendor_email: 'sales@midweststeel.com', dispute_email_draft: 'Dear Billing,\n\nOur contract specifies premium structural rebar grid packages at a flat rate of $110/ton. Invoice INV-2026-9901 items show over-indexed billings at $145/ton.\n\nPlease process credit corrections promptly.', status: 'variance_found', saved_amount: 3450.00 },
+  { id: 'rep_02', invoice_name: 'CON-8871_ReadyMixConcrete.pdf', vendor_email: 'billing@alliedconcrete.net', dispute_email_draft: 'Attention Accounts Receivable,\n\nWe were overcharged for 4 batches of aggregate mix that arrived outside our delivery window. Requesting standard contract variance adjustments.', status: 'dispute_sent', saved_amount: 1200.00 },
+  { id: 'rep_03', invoice_name: 'PLM-3321_CopperPipingValves.pdf', vendor_email: 'distributor@apexplumbing.com', dispute_email_draft: '', status: 'verified', saved_amount: 0.00 }
+];
 
 export default function DashboardPage() {
-  // --- Core Component States ---
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string>('');
-  const [reports, setReports] = useState<AuditReport[]>([]);
-  const [totalSaved, setTotalSaved] = useState<number>(0);
-  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [reports, setReports] = useState(initialReportData);
+  const [activeFilter, setActiveFilter] = useState<'all' | 'variance_found' | 'dispute_sent'>('all');
+  const [selectedReport, setSelectedReport] = useState<typeof initialReportData[0] | null>(null);
+
+  // Growth metric tallies optimized to show gamified value metrics
+  const totalRecoveredCash = reports
+    .filter(r => r.status === 'dispute_sent')
+    .reduce((sum, item) => sum + item.saved_amount, 0);
+
+  const pendingRiskCash = reports
+    .filter(r => r.status === 'variance_found')
+    .reduce((sum, item) => sum + item.saved_amount, 0);
+
+  const filteredReports = reports.filter(r => {
+    if (activeFilter === 'all') return true;
+    return r.status === activeFilter;
+  });
+
+  return (
+    <div className="min-h-screen bg-slate-50 font-sans antialiased selection:bg-emerald-100">
+      
+      {/* Primary Context Navigation Header */}
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-40 px-8 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-lg font-black tracking-tight text-slate-900">Auditor<span className="text-emerald-500">Box</span></span>
+          <span className="text-[10px] font-bold bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200">HQ Control Pane</span>
+        </div>
+        <div className="h-8 w-8 rounded-full bg-slate-900 text-white font-bold text-xs flex items-center justify-center border shadow-sm">
+          HQ
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-8 py-10 space-y-8">
+        
+        {/* Retention Engine: The Visual ROI Gamification Dashboard Scoreboard */}
+        <div className="grid sm:grid-cols-3 gap-6">
+          
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1 relative overflow-hidden">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Total Capital Recovered</span>
+            <span className="text-3xl font-black text-slate-900 block tracking-tight">${totalRecoveredCash.toLocaleString()}</span>
+            <p className="text-[11px] font-medium text-emerald-600">✓ Hard money clawed back into margins</p>
+            <div className="absolute right-3 bottom-2 text-4xl opacity-10 select-none">📈</div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm space-y-1 relative overflow-hidden">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Identified Leaks (At Risk)</span>
+            <span className="text-3xl font-black text-amber-600 block tracking-tight">${pendingRiskCash.toLocaleString()}</span>
+            <p className="text-[11px] font-medium text-slate-500">Action required to secure corrections</p>
+            <div className="absolute right-3 bottom-2 text-4xl opacity-10 select-none">⚠️</div>
+          </div>
+
+          <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white border border-slate-800 rounded-2xl p-5 shadow-md space-y-1 relative overflow-hidden">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">Your Active System ROI</span>
+            <span className="text-3xl font-black text-emerald-400 block tracking-tight">
+              {totalRecoveredCash > 0 ? `${Math.round((totalRecoveredCash / 149) * 100)}%` : '100% Secure'}
+            </span>
+            <p className="text-[11px] font-medium text-slate-300">Software spending value yield multi-factor</p>
+            <div className="absolute right-3 bottom-2 text-4xl opacity-10 select-none">🛡️</div>
+          </div>
+
+        </div>
+
+        {/* Dynamic Navigation/Filtering Sub-Bar Controls */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-4">
+          <div className="bg-slate-200/60 p-1 rounded-xl flex items-center gap-1 border border-slate-200/40">
+            <button 
+              onClick={() => setActiveFilter('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeFilter === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              All Receipts ({reports.length})
+            </button>
+            <button 
+              onClick={() => setActiveFilter('variance_found')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeFilter === 'variance_found' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              Flagged Overcharges ({reports.filter(r => r.status === 'variance_found').length})
+            </button>
+            <button 
+              onClick={() => setActiveFilter('dispute_sent')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${activeFilter === 'dispute_sent' ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+            >
+              Active Disputes Sent
+            </button>
+          </div>
+        </div>
+
+        {/* Core Workspace Interactive Ledger Table Matrix */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          {filteredReports.length === 0 ? (
+            <div className="p-16 text-center max-w-sm mx-auto space-y-2">
+              <span className="text-4xl block">📋</span>
+              <h5 className="font-bold text-slate-800 text-sm">No ledger logs detected</h5>
+              <p className="text-xs text-slate-400">Scan jobsite QR badges or text vendor slips directly into the framework to track margin metrics.</p>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  <th className="px-6 py-3.5">Invoice / Asset Reference Name</th>
+                  <th className="px-6 py-3.5">Identified Pricing Leak</th>
+                  <th className="px-6 py-3.5">Verification Status</th>
+                  <th className="px-6 py-3.5 text-right">Workspace Commands</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+                {filteredReports.map((report) => (
+                  <tr key={report.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-6 py-4 font-mono font-bold text-slate-900 max-w-xs truncate">
+                      {report.invoice_name}
+                    </td>
+                    <td className="px-6 py-4 font-semibold text-sm">
+                      {report.saved_amount > 0 ? (
+                        <span className={report.status === 'dispute_sent' ? 'text-slate-400 font-mono' : 'text-rose-600 font-mono font-black'}>
+                          ${report.saved_amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4">
+                      {report.status === 'variance_found' && <span className="bg-amber-500/10 border border-amber-500/20 text-amber-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">Overage Found</span>}
+                      {report.status === 'dispute_sent' && <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">Dispute Transmitted</span>}
+                      {report.status === 'verified' && <span className="bg-slate-100 border border-slate-200 text-slate-500 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase">Verified Match</span>}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {report.status === 'variance_found' ? (
+                        <button 
+                          onClick={() => setSelectedReport(report)}
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg shadow-sm transition-all active:scale-95"
+                        >
+                          Review & Send Dispute
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 text-[11px] pr-2 font-semibold">Ledger Locked</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+      </main>
+
+      {/* Modal Injection Overlay Gate */}
+      {selectedReport && (
+        <DisputeModal 
+          report={selectedReport}
+          onClose={() => setSelectedReport(null)}
+          onSuccess={() => {
+            // Optimistically update local view configurations to keep interaction velocity instantaneous
+            setReports(prev => prev.map(item => 
+              item.id === selectedReport.id ? { ...item, status: 'dispute_sent' } : item
+            ));
+            setSelectedReport(null);
+          }}
+        />
+      )}
+
+    </div>
+  );
+}
   const [uploading, setUploading] = useState<boolean>(false);
   
   // Modal tracking states
